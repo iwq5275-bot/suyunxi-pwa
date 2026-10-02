@@ -229,7 +229,7 @@
   const BROKERS = ["wss://broker.emqx.io:8084/mqtt"];
   function connect() {
     try { if (mqttClient) mqttClient.end(true); } catch(e){}
-    const url = BROKERS[brokerIdx % BROKERS.length];
+    const url = BROKERS[0];
     $("conn").style.display = "block";
     const short = url.replace("wss://","").split("/")[0];
     $("conn").textContent = "连接中(" + short + ")…";
