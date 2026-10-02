@@ -99,6 +99,7 @@
   </div>
 </header>
 <div id="conn">连接断开，重连中…</div>
+<div id="diag" style="position:fixed;bottom:calc(70px + env(safe-area-inset-bottom));left:10px;right:10px;max-height:120px;overflow-y:auto;background:rgba(0,0,0,.75);color:#0f0;font-size:10px;font-family:monospace;padding:8px;border-radius:8px;display:none;z-index:60;white-space:pre-wrap;"></div>
 <div id="msgs"></div>
 <div id="typing"><span class="tdots">她正在输入<span>.</span><span>.</span><span>.</span></span></div>
 <div id="inputbar">
@@ -205,7 +206,14 @@
 
   /* ---- MQTT 传输（公共中继，两端都是出站，无需隧道） ---- */
   let TOPIC_UP = "", TOPIC_DOWN = "";
+  function dlog(s) {
+    const el = document.getElementById("diag");
+    el.style.display = "block";
+    el.textContent += new Date().toLocaleTimeString() + " " + s + "\n";
+    el.scrollTop = el.scrollHeight;
+  }
   async function boot() {
+    dlog("boot, mqtt=" + (typeof mqtt));
     if (!KEY || typeof mqtt === "undefined") {
       $("conn").style.display = "block";
       $("conn").textContent = "mqtt 库加载失败，检查网络后刷新";
@@ -218,6 +226,7 @@
   }
   const BROKERS = [
     "wss://broker.emqx.io:8084/mqtt",
+    "wss://mqtt.eclipseprojects.io:443/mqtt",
     "wss://broker.hivemq.com:8884/mqtt",
     "wss://test.mosquitto.org:8081/mqtt",
   ];
@@ -230,6 +239,7 @@
     const short = url.replace("wss://","").split("/")[0];
     $("conn").textContent = "连接中(" + short + ")…";
     try { $("status").textContent = "连接中(" + short + ")…"; } catch(e){}
+    dlog("try " + short);
     mqttClient = mqtt.connect(url, {
       clientId: "suyunxi-phone-" + Math.random().toString(36).slice(2,10),
       reconnectPeriod: 0, connectTimeout: 12000, keepalive: 30,
@@ -237,12 +247,14 @@
     });
     // 12 秒连不上就换下一个 broker
     connectTimer = setTimeout(() => {
+      dlog("TIMEOUT 12s");
       brokerIdx++;
       try { mqttClient.end(true); } catch(e){}
       connect();
     }, 12000);
     mqttClient.on("connect", async () => {
       clearTimeout(connectTimer);
+      dlog("CONNECTED " + BROKERS[brokerIdx % BROKERS.length].split("/")[2]);
       brokerIdx = 0;
       $("conn").style.display = "none"; sendBtn.disabled = false;
       mqttClient.subscribe(TOPIC_DOWN, {qos: 1});
@@ -251,8 +263,9 @@
     mqttClient.on("reconnect", () => {
       $("conn").style.display = "block"; $("conn").textContent = "连接断开，重连中…";
     });
-    mqttClient.on("error", () => {
+    mqttClient.on("error", (e) => {
       clearTimeout(connectTimer);
+      dlog("ERR " + (e && e.message ? e.message : "unknown"));
       brokerIdx++;
       setTimeout(connect, 1500);
     });
@@ -301,7 +314,7 @@
 
   if (KEY) boot();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=2").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=3").catch(()=>{});
   }
 })();
 </script>
