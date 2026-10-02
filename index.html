@@ -88,6 +88,15 @@
   #conn { position:fixed; top:calc(64px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
     background:rgba(0,0,0,.65); color:#fff; font-size:12px; padding:6px 14px; border-radius:16px;
     display:none; z-index:50; }
+  /* 调试面板：三击顶栏头像开启 */
+  #debugpanel { position:fixed; bottom:calc(70px + env(safe-area-inset-bottom)); left:10px; right:10px;
+    z-index:60; display:none; }
+  #debugpanel.show { display:block; }
+  #diag { max-height:120px; overflow-y:auto; background:rgba(0,0,0,.78); color:#0f0; font-size:10px;
+    font-family:monospace; padding:8px; border-radius:8px; white-space:pre-wrap; margin-bottom:8px; }
+  #wipe { background:#c0392b; color:#fff; border:0; border-radius:8px; padding:10px 16px;
+    font-size:13px; width:100%; }
+  #dbgver { text-align:center; color:#888; font-size:10px; margin-bottom:6px; font-family:monospace; }
 </style>
 </head>
 <body>
@@ -99,7 +108,7 @@
   </div>
 </header>
 <div id="conn">连接断开，重连中…</div>
-<button id="wipe" style="display:none;position:fixed;bottom:200px;right:12px;z-index:99;background:#c00;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:13px;">清缓存重载</button><div id="diag" style="position:fixed;bottom:calc(70px + env(safe-area-inset-bottom));left:10px;right:10px;max-height:120px;overflow-y:auto;background:rgba(0,0,0,.75);color:#0f0;font-size:10px;font-family:monospace;padding:8px;border-radius:8px;display:none;z-index:60;white-space:pre-wrap;"></div>
+<div id="debugpanel"><div id="dbgver">v7</div><div id="diag"></div><button id="wipe">清缓存并重载</button></div>
 <div id="msgs"></div>
 <div id="typing"><span class="tdots">她正在输入<span>.</span><span>.</span><span>.</span></span></div>
 <div id="inputbar">
@@ -207,14 +216,38 @@
   /* ---- MQTT 传输（公共中继，两端都是出站，无需隧道） ---- */
   let TOPIC_UP = "", TOPIC_DOWN = "";
   const pendingQ = [];
+  let DEBUG = false;
   function dlog(s) {
+    console.log("[suyunxi] " + s);
+    if (!DEBUG) return;
     const el = document.getElementById("diag");
-    el.style.display = "block";
     el.textContent += new Date().toLocaleTimeString() + " " + s + "\n";
     el.scrollTop = el.scrollHeight;
   }
+  /* 三击头像开关调试面板 */
+  (function(){
+    let taps = 0, timer = null;
+    $("avatar").addEventListener("click", () => {
+      taps++;
+      clearTimeout(timer);
+      timer = setTimeout(() => { taps = 0; }, 600);
+      if (taps >= 3) {
+        taps = 0;
+        DEBUG = !DEBUG;
+        $("debugpanel").classList.toggle("show", DEBUG);
+        if (DEBUG) dlog("v7 debug on");
+      }
+    });
+  })();
+  function setStatus(t, online) {
+    $("status").textContent = t;
+    const dot = document.querySelector(".dot");
+    if (dot) dot.style.background = online ? "#7ed491" : "#e8b04b";
+    sendBtn.disabled = !online;
+    if (online) $("conn").style.display = "none";
+  }
   async function boot() {
-    dlog("v6.2 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
+    dlog("v7 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
     if (!KEY || typeof mqtt === "undefined") {
       $("conn").style.display = "block";
       $("conn").textContent = "mqtt 库加载失败，检查网络后刷新";
@@ -245,43 +278,28 @@
     });
     mqttClient.on("connect", async () => {
       dlog("CONNECTED " + short);
-      $("conn").style.display = "none";
-      $("status").textContent = "在线";
-      $("status").style.color = "#7f8c78";
-      sendBtn.disabled = false;
+      setStatus("在线", true);
       mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => {
         dlog(err ? "sub ERR" : "sub OK");
-        if (err) {
-          $("status").textContent = "订阅失败";
-          sendBtn.disabled = true;
-        }
+        if (err) setStatus("订阅失败", false);
       });
       await flushQ();
       sendObj({type:"hello_req"});
     });
     mqttClient.on("reconnect", () => {
       dlog("RECONNECT");
-      $("conn").style.display = "block";
-      $("conn").textContent = "连接中…";
-      $("status").textContent = "连接中…";
-      sendBtn.disabled = true;
+      setStatus("重连中…", false);
     });
     mqttClient.on("error", (e) => {
       dlog("ERR " + (e && e.message ? e.message : "unknown"));
     });
     mqttClient.on("offline", () => {
       dlog("OFFLINE");
-      $("conn").style.display = "block";
-      $("conn").textContent = "连接断开，重连中…";
-      $("status").textContent = "重连中…";
-      sendBtn.disabled = true;
+      setStatus("重连中…", false);
     });
     mqttClient.on("close", () => {
       dlog("CLOSE");
-      $("conn").style.display = "block";
-      $("conn").textContent = "连接断开，重连中…";
-      $("status").textContent = "重连中…";
-      sendBtn.disabled = true;
+      setStatus("重连中…", false);
     });
     mqttClient.on("message", async (topic, payload) => {
       dlog("msg on " + topic + " len=" + payload.length);
@@ -357,14 +375,14 @@
   });
 
   if (KEY) boot();
-  (function(){ const w=document.getElementById("wipe"); w.style.display="block";
+  (function(){ const w=document.getElementById("wipe");
     w.onclick=()=>{ try{localStorage.clear();}catch(e){} 
       if("serviceWorker" in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }
       if(window.caches){ caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }
       setTimeout(()=>location.href=location.pathname+"?t="+Date.now(), 800); };
   })();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=6").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=7").catch(()=>{});
   }
 })();
 </script>
