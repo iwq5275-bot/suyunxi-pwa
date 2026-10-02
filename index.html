@@ -206,6 +206,7 @@
 
   /* ---- MQTT 传输（公共中继，两端都是出站，无需隧道） ---- */
   let TOPIC_UP = "", TOPIC_DOWN = "";
+  const pendingQ = [];
   function dlog(s) {
     const el = document.getElementById("diag");
     el.style.display = "block";
@@ -225,12 +226,7 @@
     TOPIC_DOWN = `suyunxi/${tid}/down`;
     connect();
   }
-  const BROKERS = [
-    "wss://broker.emqx.io:8084/mqtt",
-    "wss://mqtt.eclipseprojects.io:443/mqtt",
-    "wss://broker.hivemq.com:8884/mqtt",
-    "wss://test.mosquitto.org:8081/mqtt",
-  ];
+  const BROKERS = ["wss://broker.emqx.io:8084/mqtt"];
   let brokerIdx = 0, connectTimer = null;
   function connect() {
     try { if (mqttClient) mqttClient.end(true); } catch(e){}
@@ -243,22 +239,21 @@
     dlog("try " + short);
     mqttClient = mqtt.connect(url, {
       clientId: "suyunxi-phone-" + Math.random().toString(36).slice(2,10),
-      reconnectPeriod: 0, connectTimeout: 12000, keepalive: 30,
-      clean: true,
+      reconnectPeriod: 2000, connectTimeout: 10000, keepalive: 15,
+      clean: true, resubscribe: true,
     });
-    // 12 秒连不上就换下一个 broker
+    // 15 秒连不上就重连（单 broker）
     connectTimer = setTimeout(() => {
-      dlog("TIMEOUT 12s");
-      brokerIdx++;
+      dlog("TIMEOUT 15s, retry");
       try { mqttClient.end(true); } catch(e){}
       connect();
-    }, 12000);
+    }, 15000);
     mqttClient.on("connect", async () => {
       clearTimeout(connectTimer);
-      dlog("CONNECTED " + BROKERS[brokerIdx % BROKERS.length].split("/")[2]);
-      brokerIdx = 0;
+      dlog("CONNECTED");
       $("conn").style.display = "none"; sendBtn.disabled = false;
-      mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => dlog(err ? "sub ERR" : "sub OK " + TOPIC_DOWN));
+      mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => dlog(err ? "sub ERR" : "sub OK"));
+      await flushQ();
       sendObj({type:"hello_req"});
     });
     mqttClient.on("reconnect", () => {
@@ -266,9 +261,13 @@
     });
     mqttClient.on("error", (e) => {
       clearTimeout(connectTimer);
-      dlog("ERR " + (e && e.message ? e.message : "unknown"));
-      brokerIdx++;
-      setTimeout(connect, 1500);
+      dlog("ERR " + (e && e.message ? e.message : "unknown") + ", retry in 2s");
+      setTimeout(connect, 2000);
+    });
+    mqttClient.on("close", () => {
+      dlog("CLOSE, retry in 2s");
+      clearTimeout(connectTimer);
+      setTimeout(connect, 2000);
     });
     mqttClient.on("message", async (topic, payload) => {
       dlog("msg on " + topic + " len=" + payload.length);
@@ -280,14 +279,24 @@
     });
   }
   async function sendObj(o) {
-    if (!mqttClient || !mqttClient.connected) { dlog("sendObj: not connected"); return; }
+    if (!mqttClient || !mqttClient.connected) {
+      dlog("queue " + o.type + " (offline)");
+      pendingQ.push(o);
+      return;
+    }
     try {
       const p = await enc(o);
-      dlog("pub " + o.type + " -> " + TOPIC_UP.split("/")[1] + " len=" + p.length);
       mqttClient.publish(TOPIC_UP, p, {qos: 1}, (err) => {
-        dlog(err ? "pub ERR " + err.message : "pub OK " + o.type);
+        if (err) { dlog("pub ERR " + o.type + ", requeue"); pendingQ.push(o); }
       });
-    } catch(e) { dlog("enc ERR " + e.message); }
+    } catch(e) { dlog("enc ERR " + e.message); pendingQ.push(o); }
+  }
+  async function flushQ() {
+    while (pendingQ.length && mqttClient && mqttClient.connected) {
+      const o = pendingQ.shift();
+      dlog("flush " + o.type);
+      await sendObj(o);
+    }
   }
   function onMsg(d) {
     if (d.type === "hello") {
@@ -325,7 +334,7 @@
 
   if (KEY) boot();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=4").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=5").catch(()=>{});
   }
 })();
 </script>
