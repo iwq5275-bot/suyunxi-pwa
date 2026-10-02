@@ -1,5 +1,5 @@
 /* 苏云汐 PWA service worker：缓存应用外壳，聊天数据走网络 */
-const CACHE = "suyunxi-v3";
+const CACHE = "suyunxi-v4";
 const SHELL = ["./", "icon-192.png", "icon-512.png",
                "icon-180.png", "avatar.png"];
 

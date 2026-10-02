@@ -213,13 +213,14 @@
     el.scrollTop = el.scrollHeight;
   }
   async function boot() {
-    dlog("boot, mqtt=" + (typeof mqtt));
+    dlog("boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
     if (!KEY || typeof mqtt === "undefined") {
       $("conn").style.display = "block";
       $("conn").textContent = "mqtt 库加载失败，检查网络后刷新";
       return;
     }
     const tid = await deriveKey();
+    dlog("tid=" + tid);
     TOPIC_UP = `suyunxi/${tid}/up`;
     TOPIC_DOWN = `suyunxi/${tid}/down`;
     connect();
@@ -257,8 +258,8 @@
       dlog("CONNECTED " + BROKERS[brokerIdx % BROKERS.length].split("/")[2]);
       brokerIdx = 0;
       $("conn").style.display = "none"; sendBtn.disabled = false;
-      mqttClient.subscribe(TOPIC_DOWN, {qos: 1});
-      mqttClient.publish(TOPIC_UP, await enc({type:"hello_req"}), {qos: 1});
+      mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => dlog(err ? "sub ERR" : "sub OK " + TOPIC_DOWN));
+      sendObj({type:"hello_req"});
     });
     mqttClient.on("reconnect", () => {
       $("conn").style.display = "block"; $("conn").textContent = "连接断开，重连中…";
@@ -270,13 +271,23 @@
       setTimeout(connect, 1500);
     });
     mqttClient.on("message", async (topic, payload) => {
+      dlog("msg on " + topic + " len=" + payload.length);
       if (topic !== TOPIC_DOWN) return;
-      let d; try { d = await dec(payload.toString()); } catch(e){ return; }
+      let d;
+      try { d = await dec(payload.toString()); dlog("dec OK type=" + d.type); }
+      catch(e){ dlog("dec FAIL " + e.message); return; }
       onMsg(d);
     });
   }
   async function sendObj(o) {
-    if (mqttClient && mqttClient.connected) mqttClient.publish(TOPIC_UP, await enc(o), {qos: 1});
+    if (!mqttClient || !mqttClient.connected) { dlog("sendObj: not connected"); return; }
+    try {
+      const p = await enc(o);
+      dlog("pub " + o.type + " -> " + TOPIC_UP.split("/")[1] + " len=" + p.length);
+      mqttClient.publish(TOPIC_UP, p, {qos: 1}, (err) => {
+        dlog(err ? "pub ERR " + err.message : "pub OK " + o.type);
+      });
+    } catch(e) { dlog("enc ERR " + e.message); }
   }
   function onMsg(d) {
     if (d.type === "hello") {
@@ -314,7 +325,7 @@
 
   if (KEY) boot();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=3").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=4").catch(()=>{});
   }
 })();
 </script>
