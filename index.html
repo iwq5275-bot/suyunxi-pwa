@@ -227,7 +227,9 @@
     clearTimeout(connectTimer);
     const url = BROKERS[brokerIdx % BROKERS.length];
     $("conn").style.display = "block";
-    $("conn").textContent = "连接中…";
+    const short = url.replace("wss://","").split("/")[0];
+    $("conn").textContent = "连接中(" + short + ")…";
+    try { $("status").textContent = "连接中(" + short + ")…"; } catch(e){}
     mqttClient = mqtt.connect(url, {
       clientId: "suyunxi-phone-" + Math.random().toString(36).slice(2,10),
       reconnectPeriod: 0, connectTimeout: 12000, keepalive: 30,
@@ -299,7 +301,7 @@
 
   if (KEY) boot();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=2").catch(()=>{});
   }
 })();
 </script>
