@@ -119,7 +119,7 @@
   "use strict";
   const $ = id => document.getElementById(id);
   const msgs = $("msgs"), text = $("text"), sendBtn = $("send"), typing = $("typing");
-  let KEY = localStorage.getItem("suyunxi_key") || new URLSearchParams(location.search).get("key") || "";
+  let KEY = new URLSearchParams(location.search).get("key") || localStorage.getItem("suyunxi_key") || "";
   let mqttClient = null, AESKEY = null;
 
   if (new URLSearchParams(location.search).get("key")) {
