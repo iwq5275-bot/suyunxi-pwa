@@ -112,7 +112,7 @@
   <button id="keygo">进入</button>
 </div>
 
-<script src="https://unpkg.com/mqtt@5.10.3/dist/mqtt.min.js"></script>
+<script src="mqtt.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -216,16 +216,32 @@
     TOPIC_DOWN = `suyunxi/${tid}/down`;
     connect();
   }
+  const BROKERS = [
+    "wss://broker.emqx.io:8084/mqtt",
+    "wss://broker.hivemq.com:8884/mqtt",
+    "wss://test.mosquitto.org:8081/mqtt",
+  ];
+  let brokerIdx = 0, connectTimer = null;
   function connect() {
     try { if (mqttClient) mqttClient.end(true); } catch(e){}
+    clearTimeout(connectTimer);
+    const url = BROKERS[brokerIdx % BROKERS.length];
     $("conn").style.display = "block";
     $("conn").textContent = "连接中…";
-    mqttClient = mqtt.connect("wss://broker.emqx.io:8084/mqtt", {
+    mqttClient = mqtt.connect(url, {
       clientId: "suyunxi-phone-" + Math.random().toString(36).slice(2,10),
-      reconnectPeriod: 3000, connectTimeout: 15000, keepalive: 30,
+      reconnectPeriod: 0, connectTimeout: 12000, keepalive: 30,
       clean: true,
     });
+    // 12 秒连不上就换下一个 broker
+    connectTimer = setTimeout(() => {
+      brokerIdx++;
+      try { mqttClient.end(true); } catch(e){}
+      connect();
+    }, 12000);
     mqttClient.on("connect", async () => {
+      clearTimeout(connectTimer);
+      brokerIdx = 0;
       $("conn").style.display = "none"; sendBtn.disabled = false;
       mqttClient.subscribe(TOPIC_DOWN, {qos: 1});
       mqttClient.publish(TOPIC_UP, await enc({type:"hello_req"}), {qos: 1});
@@ -234,7 +250,9 @@
       $("conn").style.display = "block"; $("conn").textContent = "连接断开，重连中…";
     });
     mqttClient.on("error", () => {
-      $("conn").style.display = "block"; $("conn").textContent = "连接断开，重连中…";
+      clearTimeout(connectTimer);
+      brokerIdx++;
+      setTimeout(connect, 1500);
     });
     mqttClient.on("message", async (topic, payload) => {
       if (topic !== TOPIC_DOWN) return;
