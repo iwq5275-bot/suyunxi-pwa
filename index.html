@@ -245,8 +245,17 @@
     });
     mqttClient.on("connect", async () => {
       dlog("CONNECTED " + short);
-      $("conn").style.display = "none"; sendBtn.disabled = false;
-      mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => dlog(err ? "sub ERR" : "sub OK"));
+      $("conn").style.display = "none";
+      $("status").textContent = "在线";
+      $("status").style.color = "#7f8c78";
+      sendBtn.disabled = false;
+      mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => {
+        dlog(err ? "sub ERR" : "sub OK");
+        if (err) {
+          $("status").textContent = "订阅失败";
+          sendBtn.disabled = true;
+        }
+      });
       await flushQ();
       sendObj({type:"hello_req"});
     });
