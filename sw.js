@@ -1,6 +1,6 @@
 /* 苏云汐 PWA service worker：缓存应用外壳，聊天数据走网络 */
-const CACHE = "suyunxi-v5";
-const SHELL = ["./", "icon-192.png", "icon-512.png",
+const CACHE = "suyunxi-v6";
+const SHELL = ["icon-192.png", "icon-512.png",
                "icon-180.png", "avatar.png"];
 
 self.addEventListener("install", e => {
@@ -13,7 +13,22 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
-  // 聊天/语音/TTS 永远走网络
+  // 导航页/HTML 必须优先走网络，避免 iOS PWA 一直吃旧版 index.html。
+  if (e.request.mode === "navigate" || u.pathname.endsWith("/index.html")) {
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          if (resp.ok) {
+            const copy = resp.clone();
+            caches.open(CACHE).then(c => c.put(e.request, copy));
+          }
+          return resp;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  // 聊天/语音/TTS 永远走网络。
   if (u.pathname.startsWith("/ws") || u.pathname.startsWith("/api/")) return;
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(resp => {
@@ -22,6 +37,6 @@ self.addEventListener("fetch", e => {
         caches.open(CACHE).then(c => c.put(e.request, copy));
       }
       return resp;
-    }).catch(() => caches.match("./")))
+    }))
   );
 });
