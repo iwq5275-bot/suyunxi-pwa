@@ -227,10 +227,8 @@
     connect();
   }
   const BROKERS = ["wss://broker.emqx.io:8084/mqtt"];
-  let brokerIdx = 0, connectTimer = null;
   function connect() {
     try { if (mqttClient) mqttClient.end(true); } catch(e){}
-    clearTimeout(connectTimer);
     const url = BROKERS[brokerIdx % BROKERS.length];
     $("conn").style.display = "block";
     const short = url.replace("wss://","").split("/")[0];
@@ -239,35 +237,42 @@
     dlog("try " + short);
     mqttClient = mqtt.connect(url, {
       clientId: "suyunxi-phone-" + Math.random().toString(36).slice(2,10),
-      reconnectPeriod: 2000, connectTimeout: 10000, keepalive: 15,
-      clean: true, resubscribe: true,
+      reconnectPeriod: 3000,
+      connectTimeout: 10000,
+      keepalive: 30,
+      clean: true,
+      resubscribe: true,
     });
-    // 15 秒连不上就重连（单 broker）
-    connectTimer = setTimeout(() => {
-      dlog("TIMEOUT 15s, retry");
-      try { mqttClient.end(true); } catch(e){}
-      connect();
-    }, 15000);
     mqttClient.on("connect", async () => {
-      clearTimeout(connectTimer);
-      dlog("CONNECTED");
+      dlog("CONNECTED " + short);
       $("conn").style.display = "none"; sendBtn.disabled = false;
       mqttClient.subscribe(TOPIC_DOWN, {qos: 1}, (err) => dlog(err ? "sub ERR" : "sub OK"));
       await flushQ();
       sendObj({type:"hello_req"});
     });
     mqttClient.on("reconnect", () => {
-      $("conn").style.display = "block"; $("conn").textContent = "连接断开，重连中…";
+      dlog("RECONNECT");
+      $("conn").style.display = "block";
+      $("conn").textContent = "连接中…";
+      $("status").textContent = "连接中…";
+      sendBtn.disabled = true;
     });
     mqttClient.on("error", (e) => {
-      clearTimeout(connectTimer);
-      dlog("ERR " + (e && e.message ? e.message : "unknown") + ", retry in 2s");
-      setTimeout(connect, 2000);
+      dlog("ERR " + (e && e.message ? e.message : "unknown"));
+    });
+    mqttClient.on("offline", () => {
+      dlog("OFFLINE");
+      $("conn").style.display = "block";
+      $("conn").textContent = "连接断开，重连中…";
+      $("status").textContent = "重连中…";
+      sendBtn.disabled = true;
     });
     mqttClient.on("close", () => {
-      dlog("CLOSE, retry in 2s");
-      clearTimeout(connectTimer);
-      setTimeout(connect, 2000);
+      dlog("CLOSE");
+      $("conn").style.display = "block";
+      $("conn").textContent = "连接断开，重连中…";
+      $("status").textContent = "重连中…";
+      sendBtn.disabled = true;
     });
     mqttClient.on("message", async (topic, payload) => {
       dlog("msg on " + topic + " len=" + payload.length);
@@ -330,11 +335,21 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
 
-  setInterval(() => sendObj({type:"ping"}), 60000);
+  setInterval(() => {
+    if (document.visibilityState === "visible") sendObj({type:"ping"});
+  }, 60000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !KEY) return;
+    if (!mqttClient || !mqttClient.connected) {
+      dlog("VISIBLE, force reconnect");
+      connect();
+    }
+  });
 
   if (KEY) boot();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=5").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=6").catch(()=>{});
   }
 })();
 </script>
