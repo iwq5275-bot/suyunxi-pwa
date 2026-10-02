@@ -85,6 +85,30 @@
   #gate.show { display:flex; }
   #gate input { font-size:18px; padding:12px 16px; border-radius:12px; border:1px solid #ddd; width:100%; max-width:300px; text-align:center; letter-spacing:2px; }
   #gate button { padding:12px 40px; border-radius:24px; border:none; background:#e8b04b; color:#fff; font-size:16px; }
+  /* 图片气泡 */
+  .bubble.img-bubble { padding:4px; background:#fff; }
+  .bubble.img-bubble img { display:block; max-width:220px; max-height:280px;
+    border-radius:14px; object-fit:cover; }
+  /* 语音条 */
+  .voice { display:flex; align-items:center; gap:8px; min-width:120px; cursor:pointer;
+    user-select:none; -webkit-user-select:none; }
+  .voice .vplay { width:28px; height:28px; border-radius:50%; background:#e8b04b;
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:12px; flex-shrink:0; }
+  .voice .vwave { display:flex; align-items:flex-end; gap:2px; height:20px; flex:1; }
+  .voice .vwave i { width:3px; background:#d8a94e; border-radius:2px; }
+  .voice.playing .vwave i { animation:wv .8s infinite ease-in-out; }
+  .voice.playing .vwave i:nth-child(2){animation-delay:.15s}
+  .voice.playing .vwave i:nth-child(3){animation-delay:.3s}
+  .voice.playing .vwave i:nth-child(4){animation-delay:.45s}
+  .voice.playing .vwave i:nth-child(5){animation-delay:.6s}
+  @keyframes wv { 0%,100%{height:6px} 50%{height:18px} }
+  .voice .vdur { font-size:12px; color:#a08c78; flex-shrink:0; }
+  /* 全屏看图 */
+  #imgview { position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:200;
+    display:none; align-items:center; justify-content:center; }
+  #imgview.show { display:flex; }
+  #imgview img { max-width:100%; max-height:100%; object-fit:contain; }
   #conn { position:fixed; top:calc(64px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
     background:rgba(0,0,0,.65); color:#fff; font-size:12px; padding:6px 14px; border-radius:16px;
     display:none; z-index:50; }
@@ -108,8 +132,8 @@
   </div>
 </header>
 <div id="conn">连接断开，重连中…</div>
-<div id="debugpanel"><div id="dbgver">v7</div><div id="diag"></div><button id="wipe">清缓存并重载</button></div>
-<div id="msgs"></div>
+<div id="debugpanel"><div id="dbgver">v8</div><div id="diag"></div><button id="wipe">清缓存并重载</button></div>
+<div id="msgs"></div><div id="imgview" onclick="this.classList.remove('show')"><img id="imgviewimg"></div>
 <div id="typing"><span class="tdots">她正在输入<span>.</span><span>.</span><span>.</span></span></div>
 <div id="inputbar">
   <textarea id="text" rows="1" placeholder="跟她说点什么…"></textarea>
@@ -170,7 +194,7 @@
   const dayStr = ts => new Date(ts).toLocaleDateString("zh-CN",{month:"long",day:"numeric"});
   let lastDay = "";
 
-  function addMsg(role, bubble, ts) {
+  function addItem(role, item, ts) {
     const day = dayStr(ts);
     if (day !== lastDay) { lastDay = day;
       msgs.insertAdjacentHTML("beforeend", `<div class="day">${day}</div>`);
@@ -178,40 +202,112 @@
     const row = document.createElement("div");
     row.className = "row " + (role === "kio" ? "me" : "her");
     if (role === "kio") {
-      row.innerHTML = `<div class="bubble">${esc(bubble)}</div>`;
-    } else {
+      row.innerHTML = `<div class="bubble">${esc(item.text || "")}</div>`;
+    } else if (item.kind === "image") {
+      const src = item.url || ("data:" + (item.mime || "image/jpeg") + ";base64," + item.data);
       row.innerHTML = `<img class="mini-avatar" src="avatar.png" onerror="this.style.display='none'">` +
-        `<div><div class="bubble">${esc(bubble)}</div>` +
-        `<div class="speak" data-text="${esc(bubble)}">\uD83D\uDD0A 听她说</div></div>`;
+        `<div class="bubble img-bubble"><img src="${src}" loading="lazy"></div>`;
+      row.querySelector("img[src^='data'], img[src^='http']").onclick = e => {
+        $("imgviewimg").src = e.target.src;
+        $("imgview").classList.add("show");
+      };
+    } else if (item.kind === "voice") {
+      const dur = item.duration || 5;
+      const bars = [8,14,10,16,9].map(h=>`<i style="height:${h}px"></i>`).join("");
+      row.innerHTML = `<img class="mini-avatar" src="avatar.png" onerror="this.style.display='none'">` +
+        `<div><div class="bubble"><div class="voice" data-audio="${item.audio||""}">` +
+        `<div class="vplay">▶</div><div class="vwave">${bars}</div>` +
+        `<div class="vdur">${dur}"</div></div></div></div>`;
+      row.querySelector(".voice").onclick = e => playVoice(e.currentTarget);
+    } else {
+      const t = esc(item.text || "");
+      row.innerHTML = `<img class="mini-avatar" src="avatar.png" onerror="this.style.display='none'">` +
+        `<div><div class="bubble">${t}</div>` +
+        `<div class="speak" data-text="${esc(item.text||"")}">\uD83D\uDD0A 听她说</div></div>`;
       row.querySelector(".speak").onclick = e => speak(e.currentTarget);
     }
     msgs.appendChild(row);
     scrollBottom();
   }
+  function addMsg(role, bubble, ts) {
+    addItem(role, {kind:"text", text:bubble}, ts);
+  }
   function scrollBottom(){ msgs.scrollTop = msgs.scrollHeight; }
 
   /* ---- 语音：先用 iOS 系统中文语音，定制音色下个版本接 ---- */
-  function speak(btn) {
-    const t = btn.getAttribute("data-text");
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    if (synth.speaking) { synth.cancel(); resetSpeakBtns(); return; }
-    resetSpeakBtns();
-    btn.classList.add("playing");
-    const u = new SpeechSynthesisUtterance(t);
-    u.lang = "zh-CN"; u.rate = 1.02; u.pitch = 1.15;
-    const vs = synth.getVoices().filter(v => v.lang && v.lang.startsWith("zh"));
-    const prefer = vs.find(v => /ting|yun|mei|jiao/i.test(v.name)) || vs[0];
-    if (prefer) u.voice = prefer;
-    u.onend = u.onerror = () => resetSpeakBtns();
-    synth.speak(u);
-  }
+
   function resetSpeakBtns() {
     document.querySelectorAll(".speak.playing").forEach(b => {
       b.classList.remove("playing"); b.innerHTML = "\uD83D\uDD0A 听她说";
     });
   }
   if (window.speechSynthesis) speechSynthesis.getVoices();
+  /* ---- 真人语音：播 base64 MP3 ---- */
+  let curAudio = null, curVoiceEl = null;
+  function playVoice(el) {
+    const b64 = el.getAttribute("data-audio");
+    if (!b64) return;
+    if (curAudio && !curAudio.paused && curVoiceEl === el) {
+      curAudio.pause(); el.classList.remove("playing");
+      el.querySelector(".vplay").textContent = "▶";
+      return;
+    }
+    stopVoice();
+    try {
+      const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const blob = new Blob([bin], {type:"audio/mpeg"});
+      curAudio = new Audio(URL.createObjectURL(blob));
+      curVoiceEl = el;
+      el.classList.add("playing");
+      el.querySelector(".vplay").textContent = "⏸";
+      curAudio.onended = () => stopVoice();
+      curAudio.onerror = () => stopVoice();
+      curAudio.play().catch(()=>stopVoice());
+    } catch(e) { stopVoice(); }
+  }
+  function stopVoice() {
+    if (curAudio) { try{curAudio.pause();}catch(e){} curAudio = null; }
+    if (curVoiceEl) {
+      curVoiceEl.classList.remove("playing");
+      const p = curVoiceEl.querySelector(".vplay");
+      if (p) p.textContent = "▶";
+      curVoiceEl = null;
+    }
+  }
+  /* ---- 听她说：请求真人 TTS ---- */
+  const ttsCache = {};
+  async function speak(btn) {
+    const t = btn.getAttribute("data-text");
+    if (!t || !mqttClient || !mqttClient.connected) return;
+    if (btn.classList.contains("playing")) { stopVoice(); resetSpeakBtns(); return; }
+    resetSpeakBtns(); stopVoice();
+    btn.classList.add("playing");
+    btn.innerHTML = "\uD83D\uDD0A 生成中…";
+    const playB64 = (b64, dur) => {
+      btn.innerHTML = "\uD83D\uDD0A 听她说";
+      // 伪装成 voice item 复用播放器
+      const tmp = document.createElement("div");
+      tmp.className = "voice"; tmp.setAttribute("data-audio", b64);
+      tmp.style.display = "none";
+      document.body.appendChild(tmp);
+      playVoice(tmp);
+      const iv = setInterval(() => {
+        if (!curAudio || curAudio.paused) { clearInterval(iv); tmp.remove(); resetSpeakBtns(); }
+      }, 500);
+    };
+    if (ttsCache[t]) { playB64(ttsCache[t].audio, ttsCache[t].duration); return; }
+    const reqId = "tts" + Date.now();
+    ttsPending[reqId] = (b64, dur) => {
+      ttsCache[t] = {audio:b64, duration:dur};
+      playB64(b64, dur);
+    };
+    sendObj({type:"tts_req", text:t, id:reqId});
+    // 30 秒没回来就恢复按钮
+    setTimeout(() => {
+      if (ttsPending[reqId]) { delete ttsPending[reqId]; resetSpeakBtns(); }
+    }, 30000);
+  }
+  const ttsPending = {};
 
   /* ---- MQTT 传输（公共中继，两端都是出站，无需隧道） ---- */
   let TOPIC_UP = "", TOPIC_DOWN = "";
@@ -247,7 +343,7 @@
     if (online) $("conn").style.display = "none";
   }
   async function boot() {
-    dlog("v7 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
+    dlog("v8 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
     if (!KEY || typeof mqtt === "undefined") {
       $("conn").style.display = "block";
       $("conn").textContent = "mqtt 库加载失败，检查网络后刷新";
@@ -338,7 +434,12 @@
       scrollBottom();
     } else if (d.type === "reply" || d.type === "proactive") {
       typing.style.display = "none";
-      (d.bubbles || []).forEach(b => addMsg("yunxi", b, d.ts || new Date().toISOString()));
+      const ts = d.ts || new Date().toISOString();
+      const items = d.items || (d.bubbles||[]).map(b => ({kind:"text", text:b}));
+      items.forEach(it => addItem("yunxi", it, ts));
+    } else if (d.type === "tts") {
+      const cb = ttsPending[d.id];
+      if (cb) { delete ttsPending[d.id]; cb(d.audio, d.duration); }
     } else if (d.type === "typing") {
       typing.style.display = "block"; scrollBottom();
     } else if (d.type === "pong") {
@@ -382,7 +483,7 @@
       setTimeout(()=>location.href=location.pathname+"?t="+Date.now(), 800); };
   })();
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=7").catch(()=>{});
+    navigator.serviceWorker.register("sw.js?v=8").catch(()=>{});
   }
 })();
 </script>
