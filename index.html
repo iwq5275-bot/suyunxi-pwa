@@ -214,7 +214,7 @@
     el.scrollTop = el.scrollHeight;
   }
   async function boot() {
-    dlog("v6.1 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
+    dlog("v6.2 boot, mqtt=" + (typeof mqtt) + " keylen=" + KEY.length);
     if (!KEY || typeof mqtt === "undefined") {
       $("conn").style.display = "block";
       $("conn").textContent = "mqtt 库加载失败，检查网络后刷新";
@@ -361,7 +361,7 @@
     w.onclick=()=>{ try{localStorage.clear();}catch(e){} 
       if("serviceWorker" in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())); }
       if(window.caches){ caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))); }
-      setTimeout(()=>location.href=location.pathname+"?key="+encodeURIComponent(KEY)+"&t="+Date.now(), 800); };
+      setTimeout(()=>location.href=location.pathname+"?t="+Date.now(), 800); };
   })();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js?v=6").catch(()=>{});
